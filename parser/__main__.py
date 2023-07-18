@@ -44,8 +44,8 @@ class PypiProject:
         wait=wait_fixed(1),
         retry=retry_if_exception_type(RateLimitException),
     )
-    @limits(calls=1, period=10)
-    def get_language_ratio(self) -> dict[str, float]:
+    @limits(calls=1, period=3)
+    def get_language_ratio_precise(self) -> dict[str, float]:
 
         links = self.get_info()['info']['project_urls']
         github_urls = {url for url in links.values() if url.startswith('https://github.com')}
@@ -62,6 +62,41 @@ class PypiProject:
 
         total = sum(languages.values())
         return {language: value/total for language, value in languages.items()}
+
+    def get_language_ratio_approximate(self) -> dict[str, float]:
+
+        links = self.get_info()['info']['project_urls'] or {}
+
+        urls = {url.replace('http://', 'https://') for url in links.values()}
+        github_urls = {url for url in urls if url.startswith('https://github.com')}
+
+        try:
+            owner, project = Counter(get_owner_and_project(url) for url in github_urls).most_common(1)[0][0]
+        except IndexError:
+            log.warning('Could not detect github owner and project for "%s": %s', self.name, links)
+            return {}
+
+        response = session.get(f'https://github.com/{owner}/{project}')
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        try:
+            languages = soup.find('h2', string='Languages').parent
+            value = languages.find('span', string='Python').find_next_sibling('span').text.strip()
+            return {'Python': float(value.removesuffix('%'))/100}
+        except AttributeError:
+            return {}
+
+        result = {}
+        for language in languages:
+            spans = language.findAll('span')
+            assert len(spans) == 2, f'Expected 2 spans, got {len(spans)}: {spans} ({self.name})'
+
+            name = spans[0].text.strip()
+            value = float(spans[1].text.strip().removesuffix('%'))/100
+            result[name] = value
+
+        return result
 
 
 def parse_pyreadiness(version: str = '3.11') -> Iterator[PypiProject]:
@@ -90,7 +125,7 @@ if __name__ == '__main__':
                 '+' if project.is_ready else '-',
                 project.name,
                 project.url,
-                ' '.join(f'{language}:{value*100:.2f}%' for language, value in project.get_language_ratio().items()),
+                ' '.join(f'{language}:{value*100:.2f}%' for language, value in project.get_language_ratio_approximate().items()),
             ) for project in tqdm(parse_pyreadiness())
         ],
         headers=('rating', 'ready', 'name', 'url', 'languages'),
