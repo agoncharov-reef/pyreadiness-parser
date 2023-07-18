@@ -16,6 +16,11 @@ session = requests.Session()
 log = logging.getLogger()
 
 
+def get_owner_and_project(github_url: str) -> tuple[str, str]:
+    owner, project, *_ = github_url.removeprefix('https://github.com/').split('/')
+    return owner, project
+
+
 @dataclass
 class PypiProject:
     name: str
@@ -42,14 +47,15 @@ class PypiProject:
     def get_language_ratio(self) -> dict[str, float]:
 
         links = self.get_info()['info']['project_urls']
+        github_urls = {url for url in links.values() if url.startswith('https://github.com')}
+
         try:
-            github_url = one({url for url in links.values() if url.startswith('https://github.com') and url.count('/') == 4})
+            owner, project = one({get_owner_and_project(url) for url in github_urls})
         except ValueError:
             log.warning('Cannot detect github url for %s: %s', self.name, links)
             return {}
 
-        owner, repo = github_url.removeprefix('https://github.com/').split('/')
-        response = session.get(f'https://api.github.com/repos/{owner}/{repo}/languages')
+        response = session.get(f'https://api.github.com/repos/{owner}/{project}/languages')
         response.raise_for_status()
         languages = response.json()
 
