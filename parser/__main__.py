@@ -1,3 +1,4 @@
+from collections import Counter
 import logging
 from dataclasses import dataclass, asdict
 from itertools import count
@@ -43,16 +44,16 @@ class PypiProject:
         wait=wait_fixed(1),
         retry=retry_if_exception_type(RateLimitException),
     )
-    @limits(calls=1, period=4)
+    @limits(calls=1, period=10)
     def get_language_ratio(self) -> dict[str, float]:
 
         links = self.get_info()['info']['project_urls']
         github_urls = {url for url in links.values() if url.startswith('https://github.com')}
 
         try:
-            owner, project = one({get_owner_and_project(url) for url in github_urls})
-        except ValueError:
-            log.warning('Cannot detect github url for %s: %s', self.name, links)
+            owner, project = Counter(get_owner_and_project(url) for url in github_urls).most_common(1)[0][0]
+        except IndexError:
+            log.warning('Could not detect github owner and project for "%s": %s', self.name, links)
             return {}
 
         response = session.get(f'https://api.github.com/repos/{owner}/{project}/languages')
