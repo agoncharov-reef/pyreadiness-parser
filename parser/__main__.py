@@ -1,12 +1,12 @@
-from collections import Counter
+import csv
 import logging
-from dataclasses import dataclass, asdict
+from collections import Counter
+from dataclasses import dataclass
 from itertools import count
 from typing import Iterator
 
 import requests
 from bs4 import BeautifulSoup
-from more_itertools import one
 from ratelimit import limits
 from ratelimit.exception import RateLimitException
 from tabulate import tabulate
@@ -118,15 +118,19 @@ def parse_pyreadiness(version: str = '3.11') -> Iterator[PypiProject]:
 
 
 if __name__ == '__main__':
-    print(tabulate(
-        [
-            (
-                project.rating,
-                '+' if project.is_ready else '-',
-                project.name,
-                project.url,
-                ' '.join(f'{language}:{value*100:.2f}%' for language, value in project.get_language_ratio_approximate().items()),
-            ) for project in tqdm(parse_pyreadiness())
-        ],
-        headers=('rating', 'ready', 'name', 'url', 'languages'),
-    ))
+    version = '3.11'
+    headers = ('rating', 'ready', 'name', 'url', 'languages')
+    rows = [
+        (
+            project.rating,
+            '+' if project.is_ready else '-',
+            project.name,
+            project.url,
+            ' '.join(f'{language}:{value*100:.2f}%' for language, value in project.get_language_ratio_approximate().items()),
+        ) for project in tqdm(parse_pyreadiness(version))
+    ]
+    print(tabulate(rows, headers=headers))
+    with open(f'pyreadiness.{version}.csv', 'w') as file:
+        writer = csv.DictWriter(file, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(dict(zip(headers, row)) for row in rows)
